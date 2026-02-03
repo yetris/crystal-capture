@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GenAIScreenShots</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="https://extensionpay.com/extpay.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="2"/>
+            <circle cx="12" cy="12" r="3" fill="currentColor"/>
+            <path d="M3 8h18M8 3v5M16 3v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1>GenAI<span>ScreenShots</span></h1>
+          <p class="tagline">Capture • Record • Share</p>
+        </div>
+      </div>
+      <div class="premium-badge" id="premiumBadge">
+        <span class="badge-icon">👑</span>
+        <span class="badge-text">PRO</span>
+      </div>
+    </header>
+
+    <!-- Subscription Banner -->
+    <div class="subscription-banner" id="subscriptionBanner">
+      <div class="banner-content">
+        <span class="banner-icon">✨</span>
+        <div class="banner-text">
+          <strong>Unlock Premium Features</strong>
+          <p>HD recording, scheduling & more</p>
+        </div>
+      </div>
+      <button class="btn btn-upgrade" id="upgradeBtn">$5/mo</button>
+    </div>
+
+    <!-- Quick Actions -->
+    <section class="quick-actions">
+      <h2 class="section-title">
+        <span class="title-icon">📸</span>
+        Quick Capture
+      </h2>
+      <div class="action-grid">
+        <button class="action-card" id="captureVisible" data-tooltip="Capture visible area">
+          <div class="action-icon">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+              <path d="M4 8h16" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </div>
+          <span class="action-label">Visible</span>
+          <span class="shortcut">Ctrl+Shift+V</span>
+        </button>
+        
+        <button class="action-card" id="captureFullPage" data-tooltip="Capture entire page with scroll">
+          <div class="action-icon">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect x="4" y="2" width="16" height="20" rx="2" stroke="currentColor" stroke-width="2"/>
+              <path d="M8 6h8M8 10h8M8 14h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <span class="action-label">Full Page</span>
+          <span class="shortcut">Ctrl+Shift+S</span>
+        </button>
+        
+        <button class="action-card" id="captureRegion" data-tooltip="Select region to capture">
+          <div class="action-icon">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <rect x="8" y="8" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/>
+            </svg>
+          </div>
+          <span class="action-label">Region</span>
+          <span class="shortcut">Select</span>
+        </button>
+        
+        <button class="action-card recording-card" id="startRecording" data-tooltip="Record tab video with audio">
+          <div class="action-icon recording-icon">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>
+              <circle cx="12" cy="12" r="4" fill="currentColor" class="record-dot"/>
+            </svg>
+          </div>
+          <span class="action-label">Record</span>
+          <span class="shortcut">Ctrl+Shift+R</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Recording Panel (hidden by default) -->
+    <section class="recording-panel" id="recordingPanel">
+      <div class="recording-header">
+        <div class="recording-indicator">
+          <span class="pulse-dot"></span>
+          <span class="recording-time" id="recordingTime">00:00</span>
+        </div>
+        <span class="recording-label">Recording in progress...</span>
+      </div>
+      <div class="recording-options">
+        <label class="option-toggle">
+          <input type="checkbox" id="includeAudio" checked>
+          <span class="toggle-slider"></span>
+          <span class="toggle-label">🔊 Tab Audio</span>
+        </label>
+        <label class="option-toggle">
+          <input type="checkbox" id="includeMic">
+          <span class="toggle-slider"></span>
+          <span class="toggle-label">🎤 Microphone</span>
+        </label>
+      </div>
+      <div class="recording-actions">
+        <button class="btn btn-pause" id="pauseRecording">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <rect x="6" y="5" width="4" height="14" rx="1"/>
+            <rect x="14" y="5" width="4" height="14" rx="1"/>
+          </svg>
+          Pause
+        </button>
+        <button class="btn btn-stop" id="stopRecording">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <rect x="6" y="6" width="12" height="12" rx="2"/>
+          </svg>
+          Stop & Save
+        </button>
+      </div>
+    </section>
+
+    <!-- Scheduling Section -->
+    <section class="scheduling-section">
+      <h2 class="section-title">
+        <span class="title-icon">⏰</span>
+        Schedule Capture
+        <span class="premium-tag" id="schedulePremium">PRO</span>
+      </h2>
+      <div class="schedule-form" id="scheduleForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Capture Type</label>
+            <select id="scheduleType" class="glass-select">
+              <option value="visible">Visible Area</option>
+              <option value="fullpage">Full Page</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Interval</label>
+            <select id="scheduleInterval" class="glass-select">
+              <option value="5">Every 5 min</option>
+              <option value="15">Every 15 min</option>
+              <option value="30">Every 30 min</option>
+              <option value="60">Every hour</option>
+              <option value="1440">Daily</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Page URL (current tab if empty)</label>
+          <input type="url" id="scheduleUrl" class="glass-input" placeholder="https://example.com">
+        </div>
+        <button class="btn btn-schedule" id="createSchedule">
+          <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          Create Schedule
+        </button>
+      </div>
+      
+      <!-- Active Schedules -->
+      <div class="active-schedules" id="activeSchedules">
+        <h3 class="subsection-title">Active Schedules</h3>
+        <div class="schedule-list" id="scheduleList">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Recent Captures -->
+    <section class="recent-section">
+      <h2 class="section-title">
+        <span class="title-icon">🖼️</span>
+        Recent Captures
+      </h2>
+      <div class="recent-grid" id="recentGrid">
+        <div class="empty-state">
+          <span class="empty-icon">📷</span>
+          <p>No captures yet</p>
+          <span class="empty-hint">Start by capturing your first screenshot!</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section class="settings-section">
+      <h2 class="section-title">
+        <span class="title-icon">⚙️</span>
+        Settings
+      </h2>
+      <div class="settings-grid">
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">Auto-download</span>
+            <span class="setting-desc">Automatically save captures</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoDownload" checked>
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">Notifications</span>
+            <span class="setting-desc">Show capture notifications</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="showNotifications" checked>
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">Image Format</span>
+            <span class="setting-desc">Choose output format</span>
+          </div>
+          <select id="imageFormat" class="glass-select mini">
+            <option value="png">PNG</option>
+            <option value="jpeg">JPEG</option>
+            <option value="webp">WebP</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">Filename Template</span>
+            <span class="setting-desc">Customize file naming</span>
+          </div>
+          <input type="text" id="filenameTemplate" class="glass-input mini" value="screenshot_{date}_{time}" placeholder="screenshot_{date}_{time}">
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-links">
+        <a href="#" id="manageSubscription">Manage Subscription</a>
+        <span class="divider">•</span>
+        <a href="#" id="helpLink">Help</a>
+        <span class="divider">•</span>
+        <a href="#" id="feedbackLink">Feedback</a>
+      </div>
+      <p class="version">GenAIScreenShots v1.0.0</p>
+    </footer>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <span class="toast-icon"></span>
+    <span class="toast-message"></span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
