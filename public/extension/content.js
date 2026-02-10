@@ -1,142 +1,148 @@
 /**
  * GenAIScreenShots - Content Script
- * Handles region selection overlay and page interactions
+ * Handles region selection overlay on the page.
+ * Injected into all http/https pages.
  */
 
-let regionOverlay = null;
-let startX = 0;
-let startY = 0;
-let isSelecting = false;
+(function () {
+  'use strict';
 
-// Listen for messages from popup/background
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.action) {
-    case 'startRegionSelection':
-      startRegionSelection();
+  var overlay = null;
+  var selectionBox = null;
+  var dimLabel = null;
+  var startX = 0;
+  var startY = 0;
+  var selecting = false;
+
+  // Listen for messages from background / popup
+  chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
+    if (message.action === 'startRegionSelection') {
+      // Small delay to let popup close first
+      setTimeout(function () { showOverlay(); }, 150);
       sendResponse({ success: true });
-      break;
-    
-    case 'cancelRegionSelection':
-      cancelRegionSelection();
+    } else if (message.action === 'cancelRegionSelection') {
+      removeOverlay();
       sendResponse({ success: true });
-      break;
-  }
-  return true;
-});
-
-function startRegionSelection() {
-  // Create overlay
-  regionOverlay = document.createElement('div');
-  regionOverlay.id = 'genai-region-overlay';
-  regionOverlay.innerHTML = `
-    <div class="genai-region-instructions">
-      <span>🎯 Click and drag to select region</span>
-      <span class="genai-hint">Press ESC to cancel</span>
-    </div>
-    <div class="genai-selection-box"></div>
-    <div class="genai-dimension-label"></div>
-  `;
-  document.body.appendChild(regionOverlay);
-  
-  // Event listeners
-  regionOverlay.addEventListener('mousedown', handleMouseDown);
-  regionOverlay.addEventListener('mousemove', handleMouseMove);
-  regionOverlay.addEventListener('mouseup', handleMouseUp);
-  document.addEventListener('keydown', handleKeyDown);
-}
-
-function handleMouseDown(e) {
-  isSelecting = true;
-  startX = e.clientX;
-  startY = e.clientY;
-  
-  const box = regionOverlay.querySelector('.genai-selection-box');
-  box.style.left = startX + 'px';
-  box.style.top = startY + 'px';
-  box.style.width = '0';
-  box.style.height = '0';
-  box.style.display = 'block';
-}
-
-function handleMouseMove(e) {
-  if (!isSelecting) return;
-  
-  const box = regionOverlay.querySelector('.genai-selection-box');
-  const label = regionOverlay.querySelector('.genai-dimension-label');
-  
-  const currentX = e.clientX;
-  const currentY = e.clientY;
-  
-  const left = Math.min(startX, currentX);
-  const top = Math.min(startY, currentY);
-  const width = Math.abs(currentX - startX);
-  const height = Math.abs(currentY - startY);
-  
-  box.style.left = left + 'px';
-  box.style.top = top + 'px';
-  box.style.width = width + 'px';
-  box.style.height = height + 'px';
-  
-  // Show dimensions
-  label.textContent = `${width} × ${height}`;
-  label.style.left = (left + width / 2) + 'px';
-  label.style.top = (top + height + 10) + 'px';
-  label.style.display = 'block';
-}
-
-function handleMouseUp(e) {
-  if (!isSelecting) return;
-  isSelecting = false;
-  
-  const currentX = e.clientX;
-  const currentY = e.clientY;
-  
-  const left = Math.min(startX, currentX);
-  const top = Math.min(startY, currentY);
-  const width = Math.abs(currentX - startX);
-  const height = Math.abs(currentY - startY);
-  
-  // Minimum size check
-  if (width < 10 || height < 10) {
-    cancelRegionSelection();
-    return;
-  }
-  
-  // Capture the region
-  captureRegion({ left, top, width, height });
-}
-
-function handleKeyDown(e) {
-  if (e.key === 'Escape') {
-    cancelRegionSelection();
-  }
-}
-
-async function captureRegion(region) {
-  // Remove overlay
-  cancelRegionSelection();
-  
-  // Send region data to background for capture
-  chrome.runtime.sendMessage({
-    action: 'captureRegion',
-    region: {
-      x: region.left + window.scrollX,
-      y: region.top + window.scrollY,
-      width: region.width,
-      height: region.height,
-      devicePixelRatio: window.devicePixelRatio
     }
+    return true;
   });
-}
 
-function cancelRegionSelection() {
-  if (regionOverlay) {
-    regionOverlay.remove();
-    regionOverlay = null;
+  function showOverlay() {
+    // Don't double-create
+    if (overlay) removeOverlay();
+
+    overlay = document.createElement('div');
+    overlay.id = 'genai-region-overlay';
+    overlay.innerHTML =
+      '<div class="genai-region-instructions">' +
+        '<span>\uD83C\uDFAF Click and drag to select region</span>' +
+        '<span class="genai-hint">Press ESC to cancel</span>' +
+      '</div>' +
+      '<div class="genai-selection-box"></div>' +
+      '<div class="genai-dimension-label"></div>';
+
+    document.body.appendChild(overlay);
+
+    selectionBox = overlay.querySelector('.genai-selection-box');
+    dimLabel = overlay.querySelector('.genai-dimension-label');
+
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('keydown', onKeyDown);
   }
-  document.removeEventListener('keydown', handleKeyDown);
-  isSelecting = false;
-}
 
-// Cleanup on page unload
-window.addEventListener('beforeunload', cancelRegionSelection);
+  function onMouseDown(e) {
+    if (e.button !== 0) return; // left click only
+    selecting = true;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    selectionBox.style.left   = startX + 'px';
+    selectionBox.style.top    = startY + 'px';
+    selectionBox.style.width  = '0';
+    selectionBox.style.height = '0';
+    selectionBox.style.display = 'block';
+    dimLabel.style.display = 'none';
+  }
+
+  function onMouseMove(e) {
+    if (!selecting) return;
+
+    var curX = e.clientX;
+    var curY = e.clientY;
+
+    var left   = Math.min(startX, curX);
+    var top    = Math.min(startY, curY);
+    var width  = Math.abs(curX - startX);
+    var height = Math.abs(curY - startY);
+
+    selectionBox.style.left   = left + 'px';
+    selectionBox.style.top    = top + 'px';
+    selectionBox.style.width  = width + 'px';
+    selectionBox.style.height = height + 'px';
+
+    dimLabel.textContent = width + ' \u00D7 ' + height;
+    dimLabel.style.left    = (left + width / 2) + 'px';
+    dimLabel.style.top     = (top + height + 10) + 'px';
+    dimLabel.style.display = 'block';
+  }
+
+  function onMouseUp(e) {
+    if (!selecting) return;
+    selecting = false;
+
+    var curX = e.clientX;
+    var curY = e.clientY;
+
+    var left   = Math.min(startX, curX);
+    var top    = Math.min(startY, curY);
+    var width  = Math.abs(curX - startX);
+    var height = Math.abs(curY - startY);
+
+    // Minimum size
+    if (width < 10 || height < 10) {
+      removeOverlay();
+      return;
+    }
+
+    // Remove overlay first so it doesn't appear in the screenshot
+    removeOverlay();
+
+    // Wait a frame for the overlay to be removed, then capture
+    requestAnimationFrame(function () {
+      setTimeout(function () {
+        chrome.runtime.sendMessage({
+          action: 'captureRegion',
+          region: {
+            x: left + window.scrollX,
+            y: top + window.scrollY,
+            width: width,
+            height: height,
+            devicePixelRatio: window.devicePixelRatio || 1
+          }
+        });
+      }, 100);
+    });
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      removeOverlay();
+    }
+  }
+
+  function removeOverlay() {
+    selecting = false;
+    if (overlay) {
+      overlay.remove();
+      overlay = null;
+      selectionBox = null;
+      dimLabel = null;
+    }
+    document.removeEventListener('keydown', onKeyDown);
+  }
+
+  // Cleanup on unload
+  window.addEventListener('beforeunload', removeOverlay);
+})();
