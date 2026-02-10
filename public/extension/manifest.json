@@ -26,7 +26,8 @@
     "alarms",
     "notifications",
     "offscreen",
-    "tabCapture"
+    "tabCapture",
+    "downloads"
   ],
   "host_permissions": [
     "<all_urls>"
