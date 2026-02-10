@@ -72,14 +72,30 @@ async function handleMessage(message, sender) {
 
 // Screenshot capture
 async function handleCapture(message) {
-  const { type, tabId, settings } = message;
+  const { type, settings } = message;
+  let { tabId } = message;
   
   try {
+    // If no tabId provided, get the active tab
+    if (!tabId) {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!activeTab) {
+        throw new Error('No active tab found. Please open a webpage and try again.');
+      }
+      tabId = activeTab.id;
+    }
+    
+    // Verify the tab has a capturable URL
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:')) {
+      throw new Error('Cannot capture this page. Navigate to a regular webpage (http/https) and try again.');
+    }
+    
     let dataUrl;
     
     switch (type) {
       case 'visible':
-        dataUrl = await captureVisibleTab();
+        dataUrl = await captureVisibleTab(tab.windowId);
         break;
       
       case 'fullpage':
@@ -87,7 +103,6 @@ async function handleCapture(message) {
         break;
       
       case 'region':
-        // Inject region selection overlay
         await chrome.tabs.sendMessage(tabId, { action: 'startRegionSelection' });
         return { success: true, pending: true };
       
@@ -95,18 +110,14 @@ async function handleCapture(message) {
         throw new Error('Unknown capture type');
     }
     
-    // Generate filename
     const filename = generateFilename(settings.filenameTemplate, settings.imageFormat);
     
-    // Download the image
     if (settings.autoDownload) {
       await downloadImage(dataUrl, filename);
     }
     
-    // Save to recent captures
     await saveToRecent(dataUrl, type);
     
-    // Show notification
     if (settings.showNotifications) {
       await showNotification('Screenshot Captured', `Saved as ${filename}`);
     }
@@ -118,8 +129,12 @@ async function handleCapture(message) {
   }
 }
 
-async function captureVisibleTab() {
-  return await chrome.tabs.captureVisibleTab(null, {
+async function captureVisibleTab(windowId) {
+  // Focus the window first to ensure active web contents
+  await chrome.windows.update(windowId, { focused: true });
+  // Small delay to let the window focus
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return await chrome.tabs.captureVisibleTab(windowId, {
     format: 'png',
     quality: 100
   });
