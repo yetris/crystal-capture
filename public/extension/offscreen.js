@@ -1,7 +1,7 @@
 /**
  * GenAIScreenShots - Offscreen Document
- * Handles media recording and image stitching operations
- * (Required for Manifest V3 since service workers can't access MediaRecorder)
+ * Handles media recording, image stitching, cropping, and format conversion.
+ * Required for Manifest V3 (service workers can't access DOM/Canvas/MediaRecorder).
  */
 
 let mediaRecorder = null;
@@ -10,7 +10,7 @@ let mediaStream = null;
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.target !== 'offscreen') return;
+  if (message.target !== 'offscreen') return false;
   
   handleMessage(message).then(sendResponse).catch(error => {
     console.error('Offscreen error:', error);
@@ -24,25 +24,25 @@ async function handleMessage(message) {
   switch (message.action) {
     case 'startRecording':
       return await startRecording(message.streamId, message.options);
-    
     case 'pauseRecording':
       return pauseRecording();
-    
     case 'stopRecording':
       return await stopRecording();
-    
     case 'stitchImages':
       return await stitchImages(message);
-    
+    case 'cropImage':
+      return await cropImage(message.dataUrl, message.region);
+    case 'convertFormat':
+      return await convertFormat(message.dataUrl, message.format);
     default:
-      return { success: false, error: 'Unknown action' };
+      return { success: false, error: 'Unknown offscreen action' };
   }
 }
 
-// Recording Functions
+// === Recording ===
+
 async function startRecording(streamId, options = {}) {
   try {
-    // Get the media stream using the stream ID
     mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         mandatory: {
@@ -62,14 +62,12 @@ async function startRecording(streamId, options = {}) {
     if (options.mic) {
       try {
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const audioTracks = micStream.getAudioTracks();
-        audioTracks.forEach(track => mediaStream.addTrack(track));
+        micStream.getAudioTracks().forEach(track => mediaStream.addTrack(track));
       } catch (micError) {
         console.warn('Could not access microphone:', micError);
       }
     }
     
-    // Setup MediaRecorder
     recordedChunks = [];
     
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
@@ -78,7 +76,7 @@ async function startRecording(streamId, options = {}) {
     
     mediaRecorder = new MediaRecorder(mediaStream, {
       mimeType,
-      videoBitsPerSecond: 3000000 // 3 Mbps
+      videoBitsPerSecond: 3000000
     });
     
     mediaRecorder.ondataavailable = (event) => {
@@ -91,8 +89,7 @@ async function startRecording(streamId, options = {}) {
       console.error('MediaRecorder error:', error);
     };
     
-    mediaRecorder.start(1000); // Collect data every second
-    
+    mediaRecorder.start(1000);
     return { success: true };
   } catch (error) {
     console.error('Start recording error:', error);
@@ -119,24 +116,15 @@ async function stopRecording() {
     }
     
     mediaRecorder.onstop = async () => {
-      // Create blob from recorded chunks
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      
-      // Convert to data URL
       const reader = new FileReader();
       reader.onloadend = () => {
-        // Cleanup
-        if (mediaStream) {
-          mediaStream.getTracks().forEach(track => track.stop());
-          mediaStream = null;
-        }
-        mediaRecorder = null;
-        recordedChunks = [];
-        
-        resolve({
-          success: true,
-          dataUrl: reader.result
-        });
+        cleanup();
+        resolve({ success: true, dataUrl: reader.result });
+      };
+      reader.onerror = () => {
+        cleanup();
+        resolve({ success: false, error: 'Failed to read recording data' });
       };
       reader.readAsDataURL(blob);
     };
@@ -145,74 +133,87 @@ async function stopRecording() {
   });
 }
 
-// Image Stitching for Full Page Screenshots
-async function stitchImages(message) {
-  const { captures, totalWidth, totalHeight, viewportWidth, viewportHeight } = message;
-  
-  return new Promise(async (resolve) => {
-    // Create canvas
-    const canvas = document.createElement('canvas');
-    canvas.width = totalWidth;
-    canvas.height = totalHeight;
-    const ctx = canvas.getContext('2d');
-    
-    // Load and draw all images
-    const loadImage = (dataUrl) => {
-      return new Promise((res) => {
-        const img = new Image();
-        img.onload = () => res(img);
-        img.onerror = () => res(null);
-        img.src = dataUrl;
-      });
-    };
-    
-    for (const capture of captures) {
-      const img = await loadImage(capture.dataUrl);
-      if (img) {
-        // Calculate exact position
-        const x = capture.col * viewportWidth;
-        const y = capture.row * viewportHeight;
-        
-        // Handle edge cases for last row/column
-        const drawWidth = Math.min(viewportWidth, totalWidth - x);
-        const drawHeight = Math.min(viewportHeight, totalHeight - y);
-        
-        ctx.drawImage(
-          img,
-          0, 0, drawWidth, drawHeight, // Source
-          x, y, drawWidth, drawHeight   // Destination
-        );
-      }
-    }
-    
-    // Convert to data URL
-    const dataUrl = canvas.toDataURL('image/png');
-    resolve(dataUrl);
-  });
+function cleanup() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(track => track.stop());
+    mediaStream = null;
+  }
+  mediaRecorder = null;
+  recordedChunks = [];
 }
 
-// Region capture cropping
+// === Image Stitching ===
+
+async function stitchImages(message) {
+  const { captures, totalWidth, totalHeight, viewportWidth, viewportHeight, outputFormat } = message;
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = totalWidth;
+  canvas.height = totalHeight;
+  const ctx = canvas.getContext('2d');
+  
+  for (const capture of captures) {
+    const img = await loadImage(capture.dataUrl);
+    if (img) {
+      const x = capture.col * viewportWidth;
+      const y = capture.row * viewportHeight;
+      const drawWidth = Math.min(viewportWidth, totalWidth - x);
+      const drawHeight = Math.min(viewportHeight, totalHeight - y);
+      ctx.drawImage(img, 0, 0, drawWidth, drawHeight, x, y, drawWidth, drawHeight);
+    }
+  }
+  
+  const mimeMap = { png: 'image/png', jpeg: 'image/jpeg', jpg: 'image/jpeg', webp: 'image/webp' };
+  const mime = mimeMap[outputFormat] || 'image/png';
+  return canvas.toDataURL(mime, 0.95);
+}
+
+// === Region Crop ===
+
 async function cropImage(dataUrl, region) {
+  const img = await loadImage(dataUrl);
+  if (!img) return dataUrl;
+  
+  const dpr = region.devicePixelRatio || 1;
+  const canvas = document.createElement('canvas');
+  canvas.width = region.width * dpr;
+  canvas.height = region.height * dpr;
+  
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(
+    img,
+    region.x * dpr, region.y * dpr,
+    region.width * dpr, region.height * dpr,
+    0, 0,
+    region.width * dpr, region.height * dpr
+  );
+  
+  return canvas.toDataURL('image/png');
+}
+
+// === Format Conversion ===
+
+async function convertFormat(dataUrl, format) {
+  const img = await loadImage(dataUrl);
+  if (!img) return dataUrl;
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  
+  const mimeMap = { png: 'image/png', jpeg: 'image/jpeg', jpg: 'image/jpeg', webp: 'image/webp' };
+  return canvas.toDataURL(mimeMap[format] || 'image/png', 0.92);
+}
+
+// === Helpers ===
+
+function loadImage(dataUrl) {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const dpr = region.devicePixelRatio || 1;
-      
-      canvas.width = region.width * dpr;
-      canvas.height = region.height * dpr;
-      
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(
-        img,
-        region.x * dpr, region.y * dpr,
-        region.width * dpr, region.height * dpr,
-        0, 0,
-        region.width * dpr, region.height * dpr
-      );
-      
-      resolve(canvas.toDataURL('image/png'));
-    };
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
     img.src = dataUrl;
   });
 }
